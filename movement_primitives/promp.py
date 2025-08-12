@@ -107,7 +107,7 @@ class ProMP:
         return self._rbfs_nd_sequence(T).T.dot(weights).reshape(
             self.n_dims, len(T)).T
 
-    def condition_position(self, y_mean, y_cov=None, t=0, t_max=1.0):
+    def condition_position(self, y_mean, select, y_cov=None, t=0, t_max=1.0):
         """Condition ProMP on a specific position.
 
         For details, see page 4 of [1]_
@@ -117,6 +117,9 @@ class ProMP:
         y_mean : array, shape (n_dims,)
             Position mean.
 
+        select : array, shape (n_dims,)
+            The dimensions selected for conditioning.
+        
         y_cov : array, shape (n_dims, n_dims), optional (default: 0)
             Covariance of position.
 
@@ -140,10 +143,17 @@ class ProMP:
            Neural Information Processing Systems, 26,
            https://papers.nips.cc/paper/2013/file/e53a0a2978c28872a4505bdb51db06dc-Paper.pdf
         """
+        print("Y_mean:", y_mean)
+        assert sum(select) == len(y_mean), f"Selection matrix does not match up with the amount of conditioned data - Selection {select} : Data {y_mean}"
         Psi_t = _nd_block_diagonal(
             self._rbfs_1d_point(t, t_max)[:, np.newaxis], self.n_dims)
+        Psi_t = Psi_t[:, select]
         if y_cov is None:
             y_cov = 0.0
+
+        print("PSI_t Shape: ", Psi_t.shape)
+        print("Weight Mean:", self.weight_mean.shape)
+        print("Weight Cov:", self.weight_cov.shape)
 
         common_term = self.weight_cov.dot(Psi_t).dot(
             np.linalg.inv(y_cov + Psi_t.T.dot(self.weight_cov).dot(Psi_t)))
@@ -158,6 +168,8 @@ class ProMP:
 
         conditional_promp = ProMP(self.n_dims, self.n_weights_per_dim)
         conditional_promp.from_weight_distribution(weight_mean, weight_cov)
+        print("New Weight Mean:", weight_mean.shape)
+        print("New Weight Cov:", weight_cov.shape)
         return conditional_promp
 
     def mean_trajectory(self, T):
@@ -632,7 +644,7 @@ def _nd_block_diagonal(partial_1d, n_dims):
     return full_nd
 
 
-def via_points(promp, ts, y_cond, y_conditional_cov=None):
+def via_points(promp, ts, y_cond, selections, y_conditional_cov=None):
     """Condition ProMP on several via-points.
 
     For details, see section 2.2 on page 4 of [1]_
@@ -670,6 +682,7 @@ def via_points(promp, ts, y_cond, y_conditional_cov=None):
     for idx, t_i in enumerate(ts):
         promp = promp.condition_position(
             y_mean=y_cond[idx],
+            select=selections[idx],
             y_cov=y_conditional_cov[[idx]],
             t=t_i,
             t_max=1.0
